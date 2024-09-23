@@ -23,3 +23,4 @@ CMakeLists.txt.user
 /bazel-gflags
 /bazel-out
 /bazel-testlogs
+/.cache

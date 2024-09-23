@@ -89,6 +89,7 @@ using std::vector;
 
 static const int kLineLength = 80;
 
+// 将字符串s添加到final_string中，如果final_string的长度加上s的长度大于等于kLineLength，则在final_string后添加换行符
 static void AddString(const string& s,
                       string* final_string, int* chars_in_line) {
   const int slen = static_cast<int>(s.length());
@@ -103,6 +104,7 @@ static void AddString(const string& s,
   *chars_in_line += slen;
 }
 
+// 打印字符串标志，如果是字符串类型，则在字符串两侧添加引号
 static string PrintStringFlagsWithQuotes(const CommandLineFlagInfo& flag,
                                          const string& text, bool current) {
   const char* c_string = (current ? flag.current_value.c_str() :
@@ -116,36 +118,45 @@ static string PrintStringFlagsWithQuotes(const CommandLineFlagInfo& flag,
 
 // Create a descriptive string for a flag.
 // Goes to some trouble to make pretty line breaks.
+// 将一个flag的信息（包括flag的名字、描述、类型、默认值、当前值）格式化为一个字符串
+// 例如：-flag_name (flag description) type: int default: 0 currently: 1
+// 在字符串长度超过80时，会在适当的位置添加换行符
 string DescribeOneFlag(const CommandLineFlagInfo& flag) {
   string main_part;
   SStringPrintf(&main_part, "    -%s (%s)",
                 flag.name.c_str(),
                 flag.description.c_str());
   const char* c_string = main_part.c_str();
+  // 代表每一行还剩下多少个字符可以添加
   int chars_left = static_cast<int>(main_part.length());
   string final_string;
+  // 代表当前行已经有多少个字符
   int chars_in_line = 0;  // how many chars in current line so far?
   while (1) {
     assert(static_cast<size_t>(chars_left)
             == strlen(c_string));  // Unless there's a \0 in there?
     const char* newline = strchr(c_string, '\n');
+    // c_string中无换行符且当前行的字符数加上当前可用字符数小于80时，将剩余字符全部添加到当前行
     if (newline == NULL && chars_in_line+chars_left < kLineLength) {
       // The whole remainder of the string fits on this line
       final_string += c_string;
       chars_in_line += chars_left;
       break;
     }
+    // c_string中含有换行符，将换行符前的字符添加到当前行
     if (newline != NULL && newline - c_string < kLineLength - chars_in_line) {
       int n = static_cast<int>(newline - c_string);
       final_string.append(c_string, n);
       chars_left -= n + 1;
       c_string += n + 1;
+    // 此时的else代表当前行到换行符处的字符数大于当前行可用的字符数，需要在适当的位置换行，即在最后一个空格处换行
     } else {
       // Find the last whitespace on this 80-char line
       int whitespace = kLineLength-chars_in_line-1;  // < 80 chars/line
       while ( whitespace > 0 && !isspace(c_string[whitespace]) ) {
         --whitespace;
       }
+      // 如果没有空格，则直接将剩余字符添加到当前行，并且将chars_in_line设置为80，下一部分的字符将会单独占一行
       if (whitespace <= 0) {
         // Couldn't find any whitespace to make a line break.  Just dump the
         // rest out!
@@ -226,6 +237,7 @@ static string DescribeOneFlagInXML(const CommandLineFlagInfo& flag) {
 // --------------------------------------------------------------------
 
 static const char* Basename(const char* filename) {
+  // strrchr返回最后一个字符c在字符串s中的位置，如果s中不包含c，则返回NULL
   const char* sep = strrchr(filename, PATH_SEPARATOR);
   return sep ? sep + 1 : filename;
 }
@@ -236,6 +248,7 @@ static string Dirname(const string& filename) {
 }
 
 // Test whether a filename contains at least one of the substrings.
+// 查找当前flag是否定义在要执行的文件中
 static bool FileMatchesSubstring(const string& filename,
                                  const vector<string>& substrings) {
   for (vector<string>::const_iterator target = substrings.begin();
@@ -247,6 +260,7 @@ static bool FileMatchesSubstring(const string& filename,
     // the string to be at the beginning of a directory component.
     // That should match the first directory component as well, so
     // we allow '/foo' to match a filename of 'foo'.
+    // strncmp用于比较两个字符串的前n个字符是否相等
     if (!target->empty() && (*target)[0] == PATH_SEPARATOR &&
         strncmp(filename.c_str(), target->c_str() + 1,
                 strlen(target->c_str() + 1)) == 0)
@@ -260,6 +274,8 @@ static bool FileMatchesSubstring(const string& filename,
 // has been stripped (e.g. by adding '#define STRIP_FLAG_HELP 1'
 // before including gflags/gflags.h), then this flag will not be displayed
 // by '--help' and its variants.
+// 输出所有在当前文件中定义的flag的信息（包括flag的名字、描述、类型、默认值、当前值）格式化为一个字符串
+// 例如：-flag_name (flag description) type: int default: 0 currently: 1
 static void ShowUsageWithFlagsMatching(const char *argv0,
                                        const vector<string> &substrings) {
   fprintf(stdout, "%s: %s\n", Basename(argv0), ProgramUsage());
@@ -296,6 +312,7 @@ static void ShowUsageWithFlagsMatching(const char *argv0,
   }
 }
 
+// 输出包含restrict_的flag的信息
 void ShowUsageWithFlagsRestrict(const char *argv0, const char *restrict_) {
   vector<string> substrings;
   if (restrict_ != NULL && *restrict_ != '\0') {
@@ -309,6 +326,7 @@ void ShowUsageWithFlags(const char *argv0) {
 }
 
 // Convert the help, program, and usage to xml.
+// 输出所有flag的信息（包括flag的位置、名字、描述、类型、默认值、当前值）的xml格式
 static void ShowXMLOfFlags(const char *prog_name) {
   vector<CommandLineFlagInfo> flags;
   GetAllFlags(&flags);   // flags are sorted: by filename, then flagname
@@ -369,9 +387,12 @@ static void AppendPrognameStrings(vector<string>* substrings,
 //    if they trigger.
 // --------------------------------------------------------------------
 
+// 输出命令行补全的结果, 例如：./a.out --help[tab]，输出所有以--help开头的flag
+// 根据不同的命令行参数，输出不同的flag的信息,最后调用gflags_exitfunc(1)退出程序
 void HandleCommandLineHelpFlags() {
   const char* progname = ProgramInvocationShortName();
 
+  // 输出命令行补全的结果
   HandleCommandLineCompletions();
 
   vector<string> substrings;
@@ -380,20 +401,24 @@ void HandleCommandLineHelpFlags() {
   if (FLAGS_helpshort) {
     // show only flags related to this binary:
     // E.g. for fileutil.cc, want flags containing   ... "/fileutil." cc
+    // 输出当前文件中定义的flag的信息
     ShowUsageWithFlagsMatching(progname, substrings);
     gflags_exitfunc(1);
 
   } else if (FLAGS_help || FLAGS_helpful) {
     // show all options
+    // 输出所有flag的信息
     ShowUsageWithFlagsRestrict(progname, "");   // empty restrict
     gflags_exitfunc(1);
 
   } else if (!FLAGS_helpon.empty()) {
     string restrict_ = PATH_SEPARATOR + FLAGS_helpon + ".";
+    // 输出所有filename中包含指定的flag_value的flag的信息
     ShowUsageWithFlagsRestrict(progname, restrict_.c_str());
     gflags_exitfunc(1);
 
   } else if (!FLAGS_helpmatch.empty()) {
+    // 输出所有filename中包含FLAGS_helpmatch的值的flag的信息
     ShowUsageWithFlagsRestrict(progname, FLAGS_helpmatch.c_str());
     gflags_exitfunc(1);
 
@@ -413,6 +438,7 @@ void HandleCommandLineHelpFlags() {
         continue;
       const string package = Dirname(flag->filename) + PATH_SEPARATOR;
       if (package != last_package) {
+        // 输出当前文件父目录中所有定义的flag的信息
         ShowUsageWithFlagsRestrict(progname, package.c_str());
         VLOG(7) << "Found package: " << package;
         if (!last_package.empty()) {      // means this isn't our first pkg

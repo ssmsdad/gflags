@@ -278,7 +278,9 @@ inline void InternalStringPrintf(std::string* output, const char* format,
   // the data in it upon use.  The fix is to make a copy
   // of the structure before using it and use that copy instead.
   va_list backup_ap;
+  // va_copy用于复制一个va_list对象，以便在后续的操作中可以重复使用
   va_copy(backup_ap, ap);
+  // vsnprintf将格式化的字符串写入到缓冲区space中，返回写入的字符数
   int bytes_written = vsnprintf(space, sizeof(space), format, backup_ap);
   va_end(backup_ap);
 
@@ -290,6 +292,7 @@ inline void InternalStringPrintf(std::string* output, const char* format,
   // Repeatedly increase buffer size until it fits.
   int length = sizeof(space);
   while (true) {
+    // 在一些旧的系统中，如果缓冲区大小不够大，vsnprintf()返回的是-1，而不是实际写入的字符数
     if (bytes_written < 0) {
       // Older snprintf() behavior. :-(  Just try doubling the buffer size
       length *= 2;
@@ -347,6 +350,7 @@ inline bool SafeGetEnv(const char *varname, std::string &valstr)
 	valstr = val;
 	free(val);
 #else
+  // getenv用于从当前的环境变量中获取指定的环境变量的值
 	const char * const val = getenv(varname);
 	if (!val) return false;
 	valstr = val;
@@ -354,6 +358,8 @@ inline bool SafeGetEnv(const char *varname, std::string &valstr)
 	return true;
 }
 
+// 这里传入二级指针的原因是为了修改fp的值
+// 传入一级指针的话调用者传入的是fp的拷贝，修改的是拷贝的值，因为fopen返回的是一个新的指针
 inline int SafeFOpen(FILE **fp, const char* fname, const char *mode)
 {
 #if defined(_MSC_VER) && _MSC_VER >= 1400

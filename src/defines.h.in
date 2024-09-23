@@ -7,6 +7,8 @@
 #ifndef GFLAGS_DEFINES_H_
 #define GFLAGS_DEFINES_H_
 
+// 此文件用于定义一些宏，这些宏在编译时会被cmake替换成具体的值
+// 例如，如果系统上存在 <stdint.h> 头文件，CMake会将#cmakedefine HAVE_STDINT_H 替换为 #define HAVE_STDINT_H
 
 // Define if you build this library for a MS Windows OS.
 #cmakedefine OS_WINDOWS

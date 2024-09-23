@@ -47,23 +47,40 @@
 # completion_word_index gets the index of the (N-1)th argument for
 # this command line.  completion_word gets the actual argument from
 # this command line at the (N-1)th position
+
+# 此文件用于命令补全，当用户输入命令时，bash会调用此文件来获取补全的命令
+# 但是这个文件怎么读也读不懂，一个问题是completion_word为什么是倒数第二个参数，而不是倒数第一个参数
+# 另一个问题是binary为什么是倒数第三个参数，而不是第零个参数
+
+# $()与${}的区别：
+# $()是执行括号内的命令并返回其输出，${}是引用变量的值
+
+# $#代表了参数的个数，$()会执行括号内的命令并返回其输出
+# 使用双括号是因为双括号支持算术运算，但是单括号只是单纯的命令替换
 completion_word_index="$(($# - 1))"
+# $(!var)是间接引用，用于获取变量 var 的值所指向的变量的值
+# 这里是获取第completion_word_index个(也就是倒数第二个)参数的值
+# 假设 ./example.sh arg1 arg2 arg3 arg4，那么completion_word即为arg3
+# ./example.sh不算参数，但是可以通过$0获取，arg1是$1，arg2是$2，arg3是$3，arg4是$4
 completion_word="${!completion_word_index}"
 
 # TODO(user): Replace this once gflags_completions.cc has
 # a bool parameter indicating unambiguously to hijack the process for
 # completion purposes.
+# -z表示字符串为空，这里是判断completion_word是否为空
 if [ -z "$completion_word" ]; then
   # Until an empty value for the completion word stops being misunderstood
   # by binaries, don't actually execute the binary or the process
   # won't be hijacked!
   exit 0
+# 结束if语句
 fi
 
 # binary_index gets the index of the command being completed (which bash
 # places in the (N-2)nd position.  binary gets the actual command from
 # this command line at that (N-2)nd position
 binary_index="$(($# - 2))"
+# 这里是获取第binary_index个(也就是倒数第三个)参数的值，即arg2
 binary="${!binary_index}"
 
 # For completions to be universal, we may have setup the compspec to
@@ -89,7 +106,12 @@ if [ "$binary" == "time" ] || [ "$binary" == "env" ]; then
 
   # Break up the 'original command line' (not this script's command line,
   # rather the one the <TAB> was pressed on) and find the second word.
+
+  # COMP_LINE代表当前命令行的内容，()表示将COMP_LINE按空格分割成数组
+  # 假设 COMP_LINE 的值为 "./example.sh arg1 arg2 arg3 arg4"：
+  # 拆分后，数组 parts 的内容为 ("./example.sh" "arg1" "arg2" "arg3" "arg4")
   parts=( ${COMP_LINE} )
+  # 这里是获取数组 parts 的第二个元素，也就是参数的第一个元素，arg1
   binary=${parts[1]}
 fi
 
@@ -99,8 +121,12 @@ fi
 # the arguments.
 params=""
 for ((i=1; i<=$(($# - 3)); ++i)); do 
+  # 例如 ./example.sh arg1 arg2 arg3 arg4
+  # $params 的值为 "arg1"
   params="$params \"${!i}\"";
+# done 用于结束for循环
 done
+# $params 的值为 "arg1 --tab_completion_word arg3"
 params="$params --tab_completion_word \"$completion_word\""
 
 # TODO(user): Perhaps stash the output in a temporary file somewhere
@@ -109,9 +135,13 @@ params="$params --tab_completion_word \"$completion_word\""
 
 # If we think we have a reasonable command to execute, then execute it
 # and hope for the best.
+# type -p 用于查找命令的路径，将binary的路径赋值给candidate
 candidate=$(type -p "$binary")
 if [ ! -z "$candidate" ]; then
+  # eval用于执行命令，2>/dev/null表示将错误输出重定向到/dev/null，即不输出错误信息
+  # 执行二进制文件binary，参数为params
   eval "$candidate 2>/dev/null $params"
+  # -f表示文件存在且为普通文件，-x表示文件存在且可执行
 elif [ -f "$binary" ] && [ -x "$binary" ]; then
   eval "$binary 2>/dev/null $params"
 fi

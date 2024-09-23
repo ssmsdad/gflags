@@ -72,6 +72,10 @@
 
 cmake_minimum_required (VERSION 3.0.2 FATAL_ERROR)
 
+# 配置这句话再重新编译项目即可解决头文件无法导入的报错问题
+# Enable the export of compile commands in JSON format
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 if (POLICY CMP0042)
   cmake_policy (SET CMP0042 NEW)
 endif ()
@@ -98,6 +102,7 @@ set (PACKAGE_BUGREPORT   "https://github.com/gflags/gflags/issues")
 set (PACKAGE_DESCRIPTION "A commandline flags library that allows for distributed flags.")
 set (PACKAGE_URL         "http://gflags.github.io/gflags")
 
+# 创建cmake项目，指定项目名称、版本和语言，CXX表示C++语言
 project (${PACKAGE_NAME} VERSION ${PACKAGE_VERSION} LANGUAGES CXX)
 if (CMAKE_VERSION VERSION_LESS 3.4)
   # C language still needed because the following required CMake modules
@@ -105,6 +110,7 @@ if (CMAKE_VERSION VERSION_LESS 3.4)
   # the case where only CXX is enabled
   # - CheckTypeSize.cmake (fixed in CMake 3.1, cf. https://cmake.org/Bug/view.php?id=14056)
   # - FindThreads.cmake   (fixed in CMake 3.4, cf. https://cmake.org/Bug/view.php?id=14905)
+  # 启用C语言支持
   enable_language (C)
 endif ()
 
@@ -140,10 +146,12 @@ if (NOT DEFINED GFLAGS_IS_SUBPROJECT)
 endif ()
 
 # prefix for package variables in CMake configuration file
+# 将PACKAGE_NAME转换为大写并赋值给PACKAGE_PREFIX，TOUPPER表示转换为大写
 string (TOUPPER "${PACKAGE_NAME}" PACKAGE_PREFIX)
 
 # convert file path on Windows with back slashes to path with forward slashes
 # otherwise this causes an issue with the cmake_install.cmake script
+# 将CMAKE_INSTALL_PREFIX转换为CMake标准路径格式，即将\转换为/，并赋值给CMAKE_INSTALL_PREFIX
 file (TO_CMAKE_PATH "${CMAKE_INSTALL_PREFIX}" CMAKE_INSTALL_PREFIX)
 
 # ----------------------------------------------------------------------------
@@ -209,6 +217,7 @@ if (NOT BUILD_gflags_LIB AND NOT BUILD_gflags_nothreads_LIB)
   message (FATAL_ERROR "At least one of [GFLAGS_]BUILD_gflags_LIB and [GFLAGS_]BUILD_gflags_nothreads_LIB must be ON.")
 endif ()
 
+# 定义一个名为INCLUDE_DIR的string类型的变量，默认值为PACKAGE_NAME
 gflags_define (STRING INCLUDE_DIR "Name of include directory of installed header files relative to CMAKE_INSTALL_PREFIX/include/" "${PACKAGE_NAME}")
 gflags_property (INCLUDE_DIR ADVANCED TRUE)
 file (TO_CMAKE_PATH "${INCLUDE_DIR}" INCLUDE_DIR)
@@ -448,13 +457,14 @@ foreach (TYPE IN ITEMS STATIC SHARED)
   if (BUILD_${TYPE}_LIBS)
     string (TOLOWER "${TYPE}" type)
     # whether or not targets are a DLL
+    # STREQUAL用于比较字符串，^表示字符串的开始，$表示字符串的结束
     if (OS_WINDOWS AND "^${TYPE}$" STREQUAL "^SHARED$")
       set (GFLAGS_IS_A_DLL 1)
     else ()
       set (GFLAGS_IS_A_DLL 0)
     endif ()
     # filename suffix for static libraries on Windows for MSVC toolchain only
-    if (OS_WINDOWS AND NOT MINGW AND "^${TYPE}$" STREQUAL "^STATIC$")
+    if (OS_WINDOWS AND NOT MINGW AND "^)${TYPE}$" STREQUAL "^STATIC$"
       set (type_suffix "_${type}")
     else ()
       set (type_suffix "")
@@ -469,6 +479,9 @@ foreach (TYPE IN ITEMS STATIC SHARED)
           VERSION     "${PACKAGE_VERSION}"
           SOVERSION   "${PACKAGE_SOVERSION}"
         )
+        # ${PROJECT_SOURCE_DIR}指的是CMakeLists.txt所在的目录，即项目根目录
+        # ${PROJECT_SOURCE_DIR}指的是执行cmake命令的目录
+        # 例如你在build目录中运行cmake..，那么 ${PROJECT_BINARY_DIR} 的值就是 build 目录的路径
         set (include_dirs "$<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/include>")
         if (INSTALL_HEADERS)
           list (APPEND include_dirs "$<INSTALL_INTERFACE:${INCLUDE_INSTALL_DIR}>")
@@ -492,6 +505,7 @@ foreach (TYPE IN ITEMS STATIC SHARED)
           if (NOT TARGET gflags${opts})
             add_custom_target (gflags${opts})
           endif ()
+          # 设置依赖，在构建gflags${opts}之前，会先构建${target_name}
           add_dependencies (gflags${opts} ${target_name})
         endif ()
       endif ()
@@ -506,6 +520,7 @@ if (GFLAGS_IS_SUBPROJECT)
       if (TARGET gflags${opts}_${type})
         # Define "gflags" alias for super-projects treating targets of this library as part of their own project
         # (also for backwards compatibility with gflags 2.2.1 which only defined this alias)
+        # ALIAS用于为目标创建别名，这里为gflags${opts}_${type}创建了别名gflags，使代码更简洁和易读
         add_library (gflags ALIAS gflags${opts}_${type})
         # Define "gflags::gflags" alias for projects that support both find_package(gflags) and add_subdirectory(gflags)
         add_library (gflags::gflags ALIAS gflags${opts}_${type})

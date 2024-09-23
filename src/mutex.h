@@ -204,6 +204,7 @@ class Mutex {
 };
 
 // Now the implementation of Mutex for various systems
+// 没有多线程的版本
 #if defined(NO_THREADS)
 
 // When we don't have threads, we can be either reading or writing,
@@ -227,6 +228,7 @@ bool Mutex::TryLock()      { if (mutex_) return false; Lock(); return true; }
 void Mutex::ReaderLock()   { assert(++mutex_ > 0); }
 void Mutex::ReaderUnlock() { assert(mutex_-- > 0); }
 
+// 在Windows下的Mutex实现
 #elif defined(OS_WINDOWS)
 
 Mutex::Mutex() : destroy_(true) {
@@ -238,6 +240,7 @@ Mutex::Mutex(LinkerInitialized) : destroy_(false) {
   SetIsSafe();
 }
 Mutex::~Mutex()            { if (destroy_) DeleteCriticalSection(&mutex_); }
+// EnterCriticalSection用来请求一个临界区对象的所有权，如果对象的锁已经被占用，调用线程会一直等待，直到锁被释放。
 void Mutex::Lock()         { if (is_safe_) EnterCriticalSection(&mutex_); }
 void Mutex::Unlock()       { if (is_safe_) LeaveCriticalSection(&mutex_); }
 #ifdef GMUTEX_TRYLOCK
@@ -247,6 +250,7 @@ bool Mutex::TryLock()      { return is_safe_ ?
 void Mutex::ReaderLock()   { Lock(); }      // we don't have read-write locks
 void Mutex::ReaderUnlock() { Unlock(); }
 
+// 在Linux下的Mutex实现
 #elif defined(HAVE_PTHREAD) && defined(HAVE_RWLOCK)
 
 #define SAFE_PTHREAD(fncall)  do {   /* run fncall if is_safe_ is true */  \
@@ -262,6 +266,7 @@ Mutex::Mutex(Mutex::LinkerInitialized) : destroy_(false) {
   if (is_safe_ && pthread_rwlock_init(&mutex_, NULL) != 0) abort();
 }
 Mutex::~Mutex()       { if (destroy_) SAFE_PTHREAD(pthread_rwlock_destroy); }
+// pthread_rwlock_wrlock()用来对读写锁对象进行写加锁操作，如果读写锁对象已经被其它线程以读或写的方式锁住，调用线程会一直等待，直到读写锁对象被解锁。
 void Mutex::Lock()         { SAFE_PTHREAD(pthread_rwlock_wrlock); }
 void Mutex::Unlock()       { SAFE_PTHREAD(pthread_rwlock_unlock); }
 #ifdef GMUTEX_TRYLOCK
@@ -272,6 +277,7 @@ void Mutex::ReaderLock()   { SAFE_PTHREAD(pthread_rwlock_rdlock); }
 void Mutex::ReaderUnlock() { SAFE_PTHREAD(pthread_rwlock_unlock); }
 #undef SAFE_PTHREAD
 
+// 在不支持读写锁的系统下的Mutex实现
 #elif defined(HAVE_PTHREAD)
 
 #define SAFE_PTHREAD(fncall)  do {   /* run fncall if is_safe_ is true */  \

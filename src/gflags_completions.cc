@@ -65,6 +65,7 @@ using std::string;
 using std::vector;
 
 
+// 这是一种增强命令行用户体验的功能，允许用户输入部分命令行标志，然后程序会提供可能的补全选项
 DEFINE_string(tab_completion_word, "",
               "If non-empty, HandleCommandLineCompletions() will hijack the "
               "process and attempt to do bash-style command line flag "
@@ -173,6 +174,21 @@ static string GetLongFlagLine(
 //    common prefix, bash will 'helpfuly' not even bother to show the
 //    output, instead changing the current word to be that common prefix.
 //    If it's clear this shouldn't happen, we'll set this boolean
+
+// force_no_update的解释：
+// 你输入了 --he 并按下 Tab 键。
+// 工具的自动补全功能发现了以下三个可能的选项：
+// --help
+// --hello
+// --height
+// 默认行为（force_no_update 为 false）
+// 在默认情况下，bash 会自动将当前输入更新为这三个选项的公共前缀。
+// 如果这三个选项的公共前缀是 --he，那么当前输入不会改变。
+// 如果公共前缀是 --hel，那么当前输入会自动更新为 --hel。
+
+// 设置 force_no_update 为 true
+// 如果将 force_no_update 设置为 true，则即使这三个选项有一个公共前缀，
+// 当前输入也不会自动更新。也就是说，输入仍然保持为 --he，而不会更新为 --hel。
 struct CompletionOptions {
   bool flag_name_substring_search;
   bool flag_location_substring_search;
@@ -204,15 +220,18 @@ struct NotableFlags {
 
 //
 // Tab completion implementation - entry point
+// 输出所有与搜索词匹配的flag
 static void PrintFlagCompletionInfo(void) {
   string cursor_word = FLAGS_tab_completion_word;
   string canonical_token;
   CompletionOptions options = CompletionOptions();
+  // 1、规范化搜索词，设置搜索选项，将搜索词存储在canonical_token中，搜索选项存储在options中
   CanonicalizeCursorWordAndSearchOptions(
       cursor_word,
       &canonical_token,
       &options);
 
+  // 日志级别为1或更高时，输出一条包含canonical_token变量值的调试信息
   DVLOG(1) << "Identified canonical_token: '" << canonical_token << "'";
 
   vector<CommandLineFlagInfo> all_flags;
@@ -221,6 +240,7 @@ static void PrintFlagCompletionInfo(void) {
   DVLOG(2) << "Found " << all_flags.size() << " flags overall";
 
   string longest_common_prefix;
+  // 2、找到所有与搜索词匹配的flag，并将其插入到matching_flags中，将这些flag的名字的最长公共前缀存储在longest_common_prefix中
   FindMatchingFlags(
       all_flags,
       options,
@@ -243,14 +263,16 @@ static void PrintFlagCompletionInfo(void) {
     VLOG(1) << "There were no matching flags, returning nothing.";
     return;
   }
-
+  // module是整个二进制文件的路径，package_dir是module的父目录
   string module;
   string package_dir;
+  // 3、找到所有flag中的模块文件和包目录，其中模块文件是filename，包目录是filename的父目录
   TryFindModuleAndPackageDir(all_flags, &module, &package_dir);
   DVLOG(1) << "Identified module: '" << module << "'";
   DVLOG(1) << "Identified package_dir: '" << package_dir << "'";
 
   NotableFlags notable_flags;
+  // 4、将匹配的flag分为完全匹配、模块匹配、包匹配、常用匹配和子包匹配
   CategorizeAllMatchingFlags(
       matching_flags,
       canonical_token,
@@ -265,6 +287,7 @@ static void PrintFlagCompletionInfo(void) {
   DVLOG(2) << " subpackage: " << notable_flags.subpackage_flags.size();
 
   vector<string> completions;
+  // 5、将所有flag的信息输出到completions中，限制输出的行数不超过99行
   FinalizeCompletionOutput(
       matching_flags,
       &options,
@@ -287,6 +310,7 @@ static void PrintFlagCompletionInfo(void) {
 
 
 // 1) Examine search word (and helper method)
+// 如果搜索词的后缀为?或者+，更新用于命令行自动补全的搜索选项
 static void CanonicalizeCursorWordAndSearchOptions(
     const string &cursor_word,
     string *canonical_search_token,
@@ -310,6 +334,8 @@ static void CanonicalizeCursorWordAndSearchOptions(
   // backwards through the term, looking for up to three '?' and up to
   // one '+' as suffixed characters.  Consume them if found, and remove
   // them from the canonical search token.
+  // ? 字符用于控制不同级别的子字符串搜索选项
+  // + 字符用于控制是否返回所有匹配的标志
   int found_question_marks = 0;
   int found_plusses = 0;
   while (true) {
@@ -345,6 +371,8 @@ static bool RemoveTrailingChar(string *str, char c) {
 
 
 // 2) Find all matches (and helper methods)
+// 遍历所有flag，找到所有与搜索词匹配的flag，并将其地址插入到all_matches中
+// 并且将这些flag的名字的最长公共前缀存储在longest_common_prefix中
 static void FindMatchingFlags(
     const vector<CommandLineFlagInfo> &all_flags,
     const CompletionOptions &options,
@@ -357,9 +385,11 @@ static void FindMatchingFlags(
       it != all_flags.end();
       ++it) {
     if (DoesSingleFlagMatch(*it, options, match_token)) {
+      // 将匹配的flag的地址插入到all_matches中
       all_matches->insert(&*it);
       if (first_match) {
         first_match = false;
+        // 将第一个匹配的flag的名字存储在longest_common_prefix中（初始化）
         *longest_common_prefix = it->name;
       } else {
         if (longest_common_prefix->empty() || it->name.empty()) {
@@ -367,10 +397,12 @@ static void FindMatchingFlags(
           continue;
         }
         string::size_type pos = 0;
+        // 寻找最长的公共前缀
         while (pos < longest_common_prefix->size() &&
             pos < it->name.size() &&
             (*longest_common_prefix)[pos] == it->name[pos])
           ++pos;
+        // erase将删除pos位置之后的所有字符
         longest_common_prefix->erase(pos);
       }
     }
@@ -380,6 +412,7 @@ static void FindMatchingFlags(
 // Given the set of all flags, the parsed match options, and the
 // canonical search token, produce the set of all candidate matching
 // flags for subsequent analysis or filtering.
+// 分别检查flag的名字、位置和描述是否包含搜索词，如果包含则返回true
 static bool DoesSingleFlagMatch(
     const CommandLineFlagInfo &flag,
     const CompletionOptions &options,
@@ -388,7 +421,7 @@ static bool DoesSingleFlagMatch(
   string::size_type pos = flag.name.find(match_token);
   if (pos == 0) return true;
 
-  // Is there a substring match if we want it?
+  // Is there a substring match if we want  it?
   if (options.flag_name_substring_search &&
       pos != string::npos)
     return true;
@@ -404,13 +437,14 @@ static bool DoesSingleFlagMatch(
       flag.description.find(match_token) != string::npos)
     return true;
 
-  return false;
+  return false; 
 }
 
 // 3) Categorize matches (and helper method)
 
 // Given a set of matching flags, categorize them by
 // likely relevance to this specific binary
+// 将匹配的flag分为完全匹配、模块匹配、包匹配、常用匹配和子包匹配
 static void CategorizeAllMatchingFlags(
     const set<const CommandLineFlagInfo *> &all_matches,
     const string &search_token,
@@ -438,19 +472,23 @@ static void CategorizeAllMatchingFlags(
           PATH_SEPARATOR,
           pos + package_dir.size() + 1);
 
+    // flag的名字与搜索词完全匹配
     if ((*it)->name == search_token) {
       // Exact match on some flag's name
       notable_flags->perfect_match_flag.insert(*it);
       DVLOG(3) << "Result: perfect match";
+    // flag所在文件的文件名与模块文件名完全匹配
     } else if (!module.empty() && (*it)->filename == module) {
       // Exact match on module filename
       notable_flags->module_flags.insert(*it);
       DVLOG(3) << "Result: module match";
+    // 标志所在的文件名包含给定的包目录，并且该文件名在包目录之后没有进一步的子目录（即没有更深层次的路径分隔符）
     } else if (!package_dir.empty() &&
         pos != string::npos && slash == string::npos) {
       // In the package, since there was no slash after the package portion
       notable_flags->package_flags.insert(*it);
       DVLOG(3) << "Result: package match";
+    // 标志所在的文件名包含给定的包目录，并且该文件名在包目录之后有进一步的子目录（即有更深层次的路径分隔符）
     } else if (!package_dir.empty() &&
         pos != string::npos && slash != string::npos) {
       // In a subdirectory of the package
@@ -467,6 +505,7 @@ static void PushNameWithSuffix(vector<string>* suffixes, const char* suffix) {
       StringPrintf("/%s%s", ProgramInvocationShortName(), suffix));
 }
 
+// 找到所有flag中的模块文件和包目录，其中模块文件是filename（路径），包目录是filename的父目录
 static void TryFindModuleAndPackageDir(
     const vector<CommandLineFlagInfo> &all_flags,
     string *module,
@@ -495,6 +534,7 @@ static void TryFindModuleAndPackageDir(
         suffix != suffixes.end();
         ++suffix) {
       // TODO(user): Make sure the match is near the end of the string
+      // 如果flag在这个二进制文件中定义，将其文件名存储在module中，将其父目录存储在package_dir中
       if (it->filename.find(*suffix) != string::npos) {
         *module = it->filename;
         string::size_type sep = it->filename.rfind(PATH_SEPARATOR);
@@ -524,6 +564,7 @@ struct DisplayInfoGroup {
 };
 
 // 4) Finalize and trim output flag set
+// 将所有flag的信息输出到completions中，限制输出的行数不超过99行
 static void FinalizeCompletionOutput(
     const set<const CommandLineFlagInfo *> &matching_flags,
     CompletionOptions *options,
@@ -538,6 +579,7 @@ static void FinalizeCompletionOutput(
   // First, figure out which output groups we'll actually use.  For each
   // nonempty group, there will be ~3 lines of header & footer, plus all
   // output lines themselves.
+  // 确保输出的行数不超过99行
   int max_desired_lines =  // "999999 flags should be enough for anyone.  -dave"
     (options->return_all_matching_flags ? 999999 : 98);
   int lines_so_far = 0;
@@ -632,6 +674,7 @@ static void FinalizeCompletionOutput(
   }
 }
 
+// 将未使用的flag（即不属于任何特殊类别的flag）插入到unused_flags中
 static void RetrieveUnusedFlags(
     const set<const CommandLineFlagInfo *> &matching_flags,
     const NotableFlags &notable_flags,
@@ -654,6 +697,7 @@ static void RetrieveUnusedFlags(
 
 // 5) Output matches (and helper methods)
 
+// 在completion中输出一个flag组，包括header、footer和group中的所有flag，限制行数不超过remaining_line_limit
 static void OutputSingleGroupWithLimit(
     const set<const CommandLineFlagInfo *> &group,
     const string &line_indentation,
@@ -687,6 +731,7 @@ static void OutputSingleGroupWithLimit(
   }
 }
 
+// 返回flag的简短信息，包括flag的名字、默认值和描述，其中描述信息可能会被截断
 static string GetShortFlagLine(
     const string &line_indentation,
     const CommandLineFlagInfo &info) {
@@ -702,6 +747,7 @@ static string GetShortFlagLine(
       FLAGS_tab_completion_columns - static_cast<int>(prefix.size());
   string suffix;
   if (remainder > 0)
+  // 如果flag的描述信息长度大于剩余的列数，将其截断
     suffix =
         (static_cast<int>(info.description.size()) > remainder ?
          (info.description.substr(0, remainder - 3) + "...").c_str() :
@@ -709,6 +755,7 @@ static string GetShortFlagLine(
   return prefix + suffix;
 }
 
+// 返回flag具体的描述信息，包括flag的名字、描述、类型、默认值、当前值与所定义的文件名
 static string GetLongFlagLine(
     const string &line_indentation,
     const CommandLineFlagInfo &info) {
@@ -748,14 +795,17 @@ static string GetLongFlagLine(
   for (string::size_type newline = output.find('\n');
       newline != string::npos;
       newline = output.find('\n')) {
+    // 得到换行符在当前行中的列位置
     int newline_pos = static_cast<int>(newline) % FLAGS_tab_completion_columns;
     int missing_spaces = FLAGS_tab_completion_columns - newline_pos;
+    // 将换行符替换为空格，实现换行
     output.replace(newline, 1, line_of_spaces, 1, missing_spaces);
   }
   return output;
 }
 }  // anonymous
 
+// 这个文件中只有这一个函数是提供给外部调用的，因为它不在匿名命名空间中
 void HandleCommandLineCompletions(void) {
   if (FLAGS_tab_completion_word.empty()) return;
   PrintFlagCompletionInfo();

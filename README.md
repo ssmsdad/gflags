@@ -3,6 +3,17 @@
 
 The documentation of the gflags library is available online at https://gflags.github.io/gflags/.
 
+2024.8.30
+------------------
+在阅读完此代码后个人的心得体会：
+gflags是一个命令行解析工具，而不是一个命令行执行工具，它的作用如下：
+
+在调用ParseCommandLineFlags后，gflags会将命令行参数中的flag解析到对应的全局变量中
+如：./testgflags --ip=127.0.0.1，解析后FLAGS_ip=127.0.0.1
+
+这里我精读的第一个项目，其实有很多地方还存在疑问，今后估计还会再回来阅读第二遍，希望到时候疑问能比现在少一些
+
+之前的说法应该是有问题的，gflags也有命令行执行的功能，在gflags_completions.sh文件中提到
 
 11 November 2018
 ----------------

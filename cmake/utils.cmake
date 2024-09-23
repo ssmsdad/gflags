@@ -1,6 +1,11 @@
 ## Utility CMake functions.
 
 # ----------------------------------------------------------------------------
+
+
+# macro用于定义一个宏，function用于定义一个函数
+# 宏和函数的区别在于，宏是直接替换，函数是调用
+
 ## Convert boolean value to 0 or 1
 macro (bool_to_int VAR)
   if (${VAR})
@@ -13,7 +18,12 @@ endmacro ()
 # ----------------------------------------------------------------------------
 ## Extract version numbers from version string
 function (version_numbers version major minor patch)
+  # ([0-9]+)表示匹配一个或多个数字
+  # (\\.[0-9]+)?表示匹配一个或多个数字，前面有一个点,?表示可有可无
+  # (rc[1-9][0-9]*|[a-z]+)?表示匹配rc后面跟一个或多个数字或者匹配一个或多个小写字母
+  # 在正则表达式中，\.表示匹配一个点，所以需要用\\表示一个\
   if (version MATCHES "([0-9]+)(\\.[0-9]+)?(\\.[0-9]+)?(rc[1-9][0-9]*|[a-z]+)?")
+    # CMAKE_MATCH_1表示第一个括号匹配的内容
     if (CMAKE_MATCH_1)
       set (_major ${CMAKE_MATCH_1})
     else ()
@@ -21,6 +31,8 @@ function (version_numbers version major minor patch)
     endif ()
     if (CMAKE_MATCH_2)
       set (_minor ${CMAKE_MATCH_2})
+      # ^表示匹配字符串的开始
+      # 将_minor中的.去掉
       string (REGEX REPLACE "^\\." "" _minor "${_minor}")
     else ()
       set (_minor 0)
@@ -36,6 +48,8 @@ function (version_numbers version major minor patch)
     set (_minor 0)
     set (_patch 0)
   endif ()
+  # 将_major,_minor,_patch传递给major,minor,patch
+  # PARENT_SCOPE表示将变量传递给父级，以便在父级中使用
   set ("${major}" "${_major}" PARENT_SCOPE)
   set ("${minor}" "${_minor}" PARENT_SCOPE)
   set ("${patch}" "${_patch}" PARENT_SCOPE)

@@ -116,6 +116,7 @@ using namespace MUTEX_NAMESPACE;
 
 
 // Special flags, type 1: the 'recursive' flags.  They set another flag's val.
+// gflags会自动创建一个名为FLAGS_name的全局变量，用于存储命令行标志的值，如"FALGS_flagfile"
 DEFINE_string(flagfile,   "", "load flags from file");
 DEFINE_string(fromenv,    "", "set flags from the environment"
                               " [use 'export FLAGS_flag1=value']");
@@ -147,6 +148,8 @@ void GFLAGS_DLL_DECL (*gflags_exitfunc)(int) = &exit;  // from stdlib.h
 // This is used by this file, and also in gflags_reporting.cc
 const char kStrippedFlagHelp[] = "\001\002\003\004 (unknown) \004\003\002\001";
 
+// 定义匿名空间，匿名空间中的变量和函数只在当前文件中可见，可以将实现细节封装起来，与类的private成员类似，可以更好地区分实现与接口
+// 所以这个命名空间（一直到1500行左右）中的均为内部函数，不对外提供接口
 namespace {
 
 // There are also 'reporting' flags, in gflags_reporting.cc.
@@ -164,6 +167,7 @@ static bool logging_is_probably_set_up = false;
 // ValidateFn(uint64).  However, for easier storage, we strip off this
 // argument and then restore it when actually calling the function on
 // a flag value.
+// 定义ValidateFnProto函数指针，代表一个验证函数，返回值为bool，不接受参数
 typedef bool (*ValidateFnProto)();
 
 // Whether we should die when reporting an error.
@@ -172,9 +176,13 @@ enum DieWhenReporting { DIE, DO_NOT_DIE };
 // Report Error and exit if requested.
 static void ReportError(DieWhenReporting should_die, const char* format, ...) {
   va_list ap;
+  // 初始化一个va_list类型的变量ap，指向第一个可变参数
   va_start(ap, format);
+  // 使用format字符串中指定的格式，将ap可变参数列表中的参数格式化后输出到标准错误流stderr
   vfprintf(stderr, format, ap);
+  // 结束可变参数的获取
   va_end(ap);
+  // 强制刷新标准错误流的输出缓冲区，确保所有错误信息都被立即输出
   fflush(stderr);   // should be unnecessary, but cygwin's rxvt buffers stderr
   if (should_die == DIE) gflags_exitfunc(1);
 }
@@ -188,6 +196,7 @@ static void ReportError(DieWhenReporting should_die, const char* format, ...) {
 // --------------------------------------------------------------------
 
 class CommandLineFlag;
+// 负责处理命令行标志的值的存储、转换和验证
 class FlagValue {
  public:
   enum ValueType {
@@ -207,11 +216,12 @@ class FlagValue {
 
   bool ParseFrom(const char* spec);
   string ToString() const;
-
+  // 如果是字符串类型，返回的是“FV_STRING”
   ValueType Type() const { return static_cast<ValueType>(type_); }
 
  private:
   friend class CommandLineFlag;  // for many things, including Validate()
+  // 注意：匿名命名空间创建了一个独立的作用域，它与外层的 GFLAGS_NAMESPACE 命名空间是隔离的，所以这里的FlagSaverImpl前仍需声明GFLAGS_NAMESPACE
   friend class GFLAGS_NAMESPACE::FlagSaverImpl;  // calls New()
   friend class FlagRegistry;     // checks value_buffer_ for flags_by_ptr_ map
   template <typename T> friend T GetFromEnv(const char*, T);
@@ -221,6 +231,7 @@ class FlagValue {
   template <typename FlagType>
   struct FlagValueTraits;
 
+  // 如果是字符串类型，返回的是“string”
   const char* TypeName() const;
   bool Equal(const FlagValue& x) const;
   FlagValue* New() const;   // creates a new one with default value
@@ -236,6 +247,7 @@ class FlagValue {
   const int8 type_;                   // how to interpret value_
   const bool owns_value_;             // whether to free value on destruct
 
+  // 通过将拷贝构造函数和拷贝赋值运算符声明为私有的，可以防止FlagValue对象的拷贝和赋值
   FlagValue(const FlagValue&);   // no copying!
   void operator=(const FlagValue&);
 };
@@ -262,8 +274,11 @@ DEFINE_FLAG_TRAITS(std::string, FV_STRING);
 
 // This could be a templated method of FlagValue, but doing so adds to the
 // size of the .o.  Since there's no type-safety here anyway, macro is ok.
+// 先将value_buffer_转换为type类型的指针，然后再取值
 #define VALUE_AS(type)  *reinterpret_cast<type*>(value_buffer_)
+// 将fv的value_buffer_转换为type类型的指针，然后再取值
 #define OTHER_VALUE_AS(fv, type)  *reinterpret_cast<type*>(fv.value_buffer_)
+// 先将value_buffer_转换为type类型的指针，然后再赋值
 #define SET_VALUE_AS(type, value)  VALUE_AS(type) = (value)
 
 template <typename FlagType>
@@ -289,12 +304,14 @@ FlagValue::~FlagValue() {
   }
 }
 
+// 从一个字符串中解析出一个值并将其存储到value_buffer_中
 bool FlagValue::ParseFrom(const char* value) {
   if (type_ == FV_BOOL) {
     const char* kTrue[] = { "1", "t", "true", "y", "yes" };
     const char* kFalse[] = { "0", "f", "false", "n", "no" };
     COMPILE_ASSERT(sizeof(kTrue) == sizeof(kFalse), true_false_equal);
     for (size_t i = 0; i < sizeof(kTrue)/sizeof(*kTrue); ++i) {
+      // strcasecmp 用来比较两个字符串是否相等，不区分大小写，相等返回0
       if (strcasecmp(value, kTrue[i]) == 0) {
         SET_VALUE_AS(bool, true);
         return true;
@@ -317,13 +334,18 @@ bool FlagValue::ParseFrom(const char* value) {
   // Leading 0x puts us in base 16.  But leading 0 does not put us in base 8!
   // It caused too many bugs when we had that behavior.
   int base = 10;    // by default
+  // 16进制前缀为0x或0X
   if (value[0] == '0' && (value[1] == 'x' || value[1] == 'X'))
     base = 16;
+  // 用于判断是否产生了错误，0表示没有错误
   errno = 0;
 
   switch (type_) {
     case FV_INT32: {
+      // end指向value中第一个非数字字符
+      // strto64可以自动跳过前面的空格，所以不需要while (*value == ' ') value++;
       const int64 r = strto64(value, &end, base);
+      // 根据end指针判断是否解析成功
       if (errno || end != value + strlen(value))  return false;  // bad parse
       if (static_cast<int32>(r) != r)  // worked, but number out of range
         return false;
@@ -367,12 +389,14 @@ bool FlagValue::ParseFrom(const char* value) {
   }
 }
 
+// 将value_buffer_中的值转换为字符串
 string FlagValue::ToString() const {
   char intbuf[64];    // enough to hold even the biggest number
   switch (type_) {
     case FV_BOOL:
       return VALUE_AS(bool) ? "true" : "false";
     case FV_INT32:
+      // snprintf函数用于将格式化的数据写入字符串，并且有防止缓冲区溢出的功能
       snprintf(intbuf, sizeof(intbuf), "%" PRId32, VALUE_AS(int32));
       return intbuf;
     case FV_UINT32:
@@ -395,6 +419,7 @@ string FlagValue::ToString() const {
   }
 }
 
+// 检查type_是否合法(类型是否在给定类型之中)，然后调用对应的Validate函数
 bool FlagValue::Validate(const char* flagname,
                          ValidateFnProto validate_fn_proto) const {
   switch (type_) {
@@ -426,6 +451,7 @@ bool FlagValue::Validate(const char* flagname,
 }
 
 const char* FlagValue::TypeName() const {
+  // 字符串字面量在代码中通过相邻的双引号语法（"bool\0xx" "int32\0x"）连接时，它们会被编译器视为一个连续的字符串，即"bool\0xxint32\0x"
   static const char types[] =
       "bool\0xx"
       "int32\0x"
@@ -439,6 +465,7 @@ const char* FlagValue::TypeName() const {
     return "";
   }
   // Directly indexing the strings in the 'types' string, each of them is 7 bytes long.
+  // &types[type_ * 7]返回一个指向该类型第一个字符的指针，遇到'\0'结束
   return &types[type_ * 7];
 }
 
@@ -495,6 +522,7 @@ void FlagValue::CopyFrom(const FlagValue& x) {
 //    this flag.
 // --------------------------------------------------------------------
 
+// 每个flag都是一个CommandLineFlag对象，包括flag的名字、描述、默认值和当前值
 class CommandLineFlag {
  public:
   // Note: we take over memory-ownership of current_val and default_val.
@@ -510,6 +538,7 @@ class CommandLineFlag {
   string default_value() const { return defvalue_->ToString(); }
   const char* type_name() const { return defvalue_->TypeName(); }
   ValidateFnProto validate_function() const { return validate_fn_proto_; }
+  // 返回一个真正指向数据的指针
   const void* flag_ptr() const { return current_->value_buffer_; }
 
   FlagValue::ValueType Type() const { return defvalue_->Type(); }
@@ -586,6 +615,7 @@ void CommandLineFlag::FillCommandLineFlagInfo(
   result->flag_ptr = flag_ptr();
 }
 
+// 避免因为直接修改FLAGS_name变量而导致modified_标志位没有被更新
 void CommandLineFlag::UpdateModifiedBit() {
   // Update the "modified" bit in case somebody bypassed the
   // Flags API and wrote directly through the FLAGS_name variable.
@@ -684,6 +714,7 @@ class FlagRegistry {
   friend void GFLAGS_NAMESPACE::GetAllFlags(vector<CommandLineFlagInfo>*);
 
   // The map from name to flag, for FindFlagLocked().
+  // key是char*类型，value是CommandLineFlag*类型，StringCmp是比较函数，用于确保key可以按照字典序排序
   typedef map<const char*, CommandLineFlag*, StringCmp> FlagMap;
   typedef FlagMap::iterator FlagIterator;
   typedef FlagMap::const_iterator FlagConstIterator;
@@ -704,6 +735,7 @@ class FlagRegistry {
   FlagRegistry& operator=(const FlagRegistry&);
 };
 
+// 使用了RAII（Resource Acquisition Is Initialization，资源获取即初始化）技朋，即在构造函数中获取资源，在析构函数中释放资源
 class FlagRegistryLock {
  public:
   explicit FlagRegistryLock(FlagRegistry* fr) : fr_(fr) { fr_->Lock(); }
@@ -713,11 +745,15 @@ class FlagRegistryLock {
 };
 
 
+// 在flags_注册表中插入一个pair对象，key是flag的name，value是CommandLineFlag*对象
+// 并在flags_by_ptr_注册表中插入一个pair对象，key是flag的current_->value_buffer_，value是CommandLineFlag*对象
 void FlagRegistry::RegisterFlag(CommandLineFlag* flag) {
   Lock();
+  // insert方法返回一个pair对象，first是一个迭代器，指向插入或是已存在的元素，second是一个bool值，表示是否插入成功
   pair<FlagIterator, bool> ins =
     flags_.insert(pair<const char*, CommandLineFlag*>(flag->name(), flag));
   if (ins.second == false) {   // means the name was already in the map
+  // ins.first是一个map迭代器，ins.first->second指向的是一个map键值对中的value对象，即CommandLineFlag*对象
     if (strcmp(ins.first->second->filename(), flag->filename()) != 0) {
       ReportError(DIE, "ERROR: flag '%s' was defined more than once "
                   "(in files '%s' and '%s').\n",
@@ -737,6 +773,7 @@ void FlagRegistry::RegisterFlag(CommandLineFlag* flag) {
   Unlock();
 }
 
+// 通过name找到对应的CommandLineFlag对象
 CommandLineFlag* FlagRegistry::FindFlagLocked(const char* name) {
   FlagConstIterator i = flags_.find(name);
   if (i == flags_.end()) {
@@ -745,12 +782,14 @@ CommandLineFlag* FlagRegistry::FindFlagLocked(const char* name) {
     if (strchr(name, '-') == NULL) return NULL;
     string name_rep = name;
     std::replace(name_rep.begin(), name_rep.end(), '-', '_');
+    // c_str()返回一个指向正规C字符串的指针常量，内容与string相同
     return FindFlagLocked(name_rep.c_str());
   } else {
     return i->second;
   }
 }
 
+// 通过flag_ptr找到对应的CommandLineFlag对象
 CommandLineFlag* FlagRegistry::FindFlagViaPtrLocked(const void* flag_ptr) {
   FlagPtrMap::const_iterator i = flags_by_ptr_.find(flag_ptr);
   if (i == flags_by_ptr_.end()) {
@@ -760,18 +799,21 @@ CommandLineFlag* FlagRegistry::FindFlagViaPtrLocked(const void* flag_ptr) {
   }
 }
 
+// 在arg中分离出key与v(value)，根据key找到对应的CommandLineFlag对象
 CommandLineFlag* FlagRegistry::SplitArgumentLocked(const char* arg,
                                                    string* key,
                                                    const char** v,
                                                    string* error_message) {
   // Find the flag object for this option
   const char* flag_name;
+  // strchr函数用于在一个串中查找给定字符的第一个匹配之处
   const char* value = strchr(arg, '=');
   if (value == NULL) {
     key->assign(arg);
     *v = NULL;
   } else {
     // Strip out the "=value" portion from arg
+    // assign函数用于将字符串的内容替换为参数指定的内容，value-arg表示的是长度
     key->assign(arg, value-arg);
     *v = ++value;    // advance past the '='
   }
@@ -818,12 +860,15 @@ CommandLineFlag* FlagRegistry::SplitArgumentLocked(const char* arg,
   return flag;
 }
 
+// 将value的值设置到flag_value中
+// 先解析，再验证，最后赋值
 bool TryParseLocked(const CommandLineFlag* flag, FlagValue* flag_value,
                     const char* value, string* msg) {
   // Use tenative_value, not flag_value, until we know value is valid.
   FlagValue* tentative_value = flag_value->New();
   if (!tentative_value->ParseFrom(value)) {
     if (msg) {
+    // stringAppendF函数用于将格式化的数据追加到字符串中
       StringAppendF(msg,
                     "%sillegal value '%s' specified for %s flag '%s'\n",
                     kError, value,
@@ -833,6 +878,7 @@ bool TryParseLocked(const CommandLineFlag* flag, FlagValue* flag_value,
     return false;
   } else if (!flag->Validate(*tentative_value)) {
     if (msg) {
+      // 这里用于替换%s的必须是一个C风格的字符串，所以要用c_str()函数
       StringAppendF(msg,
           "%sfailed validation of new value '%s' for flag '%s'\n",
           kError, tentative_value->ToString().c_str(),
@@ -851,6 +897,7 @@ bool TryParseLocked(const CommandLineFlag* flag, FlagValue* flag_value,
   }
 }
 
+// 修改CommandLineFlag对象的modified_标志位
 bool FlagRegistry::SetFlagLocked(CommandLineFlag* flag,
                                  const char* value,
                                  FlagSettingMode set_mode,
@@ -897,10 +944,12 @@ bool FlagRegistry::SetFlagLocked(CommandLineFlag* flag,
 }
 
 // Get the singleton FlagRegistry object
+// 这里使用单例模式，因为整个应用程序应该只有一个这样的注册表
 FlagRegistry* FlagRegistry::global_registry_ = NULL;
 
 FlagRegistry* FlagRegistry::GlobalRegistry() {
   static Mutex lock(Mutex::LINKER_INITIALIZED);
+  // 使用互斥锁保证仅创建一个FlagRegistry对象
   MutexLock acquire_lock(&lock);
   if (!global_registry_) {
     global_registry_ = new FlagRegistry;
@@ -986,8 +1035,10 @@ class CommandLineFlagParser {
 
 
 // Parse a list of (comma-separated) flags.
+// 将一行命令解析为一个flag列表，每个元素都是一个flag
 static void ParseFlagList(const char* value, vector<string>* flags) {
   for (const char *p = value; p && *p; value = p) {
+    // 格式：value1,value2,value3
     p = strchr(value, ',');
     size_t len;
     if (p) {
@@ -1000,6 +1051,7 @@ static void ParseFlagList(const char* value, vector<string>* flags) {
     if (len == 0)
       ReportError(DIE, "ERROR: empty flaglist entry\n");
     if (value[0] == '-')
+      // %*s用于打印一个字符串，其中*表示字符串的宽度由另一个参数（在这里是len）动态指定，s表示要打印的是一个字符串
       ReportError(DIE, "ERROR: flag \"%*s\" begins with '-'\n", len, value);
 
     flags->push_back(string(value, len));
@@ -1010,16 +1062,22 @@ static void ParseFlagList(const char* value, vector<string>* flags) {
 // can do all the I/O in one place and not worry about it everywhere.
 // Plus, it's convenient to have the whole file contents at hand.
 // Adds a newline at the end of the file.
+// perror根据全局变量errno的当前值，打印一个描述性错误消息到标准错误输出(stderr)，s是perror函数的参数，它会被打印在错误消息的前面
 #define PFATAL(s)  do { perror(s); gflags_exitfunc(1); } while (0)
 
+// 读取文件内容到一个string中
 static string ReadFileIntoString(const char* filename) {
   const int kBufSize = 8092;
   char buffer[kBufSize];
   string s;
+  // FILE是一个定义在<stdio.h>中的结构体，用于文件操作，表示一个文件流
   FILE* fp;
+  // SafeFOpen函数用于打开一个文件，如果失败则返回错误码，成功返回0
   if ((errno = SafeFOpen(&fp, filename, "r")) != 0) PFATAL(filename);
   size_t n;
+  // fread函数用于从文件流fp中读取数据存入buffer中，返回值是实际读取的元素个数，如果出错或者读到文件末尾则返回0
   while ( (n=fread(buffer, 1, kBufSize, fp)) > 0 ) {
+    // ferror函数用于检查文件流fp是否出错，如果出错则返回非0值
     if (ferror(fp))  PFATAL(filename);
     s.append(buffer, n);
   }
@@ -1027,26 +1085,35 @@ static string ReadFileIntoString(const char* filename) {
   return s;
 }
 
+// argc是命令行参数的个数，argv是命令行参数的数组
 uint32 CommandLineFlagParser::ParseNewCommandLineFlags(int* argc, char*** argv,
                                                        bool remove_flags) {
   int first_nonopt = *argc;        // for non-options moved to the end
 
   registry_->Lock();
   for (int i = 1; i < first_nonopt; i++) {
+    // 我的理解是char*=string，所以这是一个指向char型指针数组的指针，其中的每一个元素都是一个字符串（说白了，就是一个指向二维数组的指针）
+    // *argv是一个char型指针数组，所以(*argv)[i]是一个字符串
     char* arg = (*argv)[i];
 
+    // 这里要将非选项参数移到最后，非选项参数不是以-开头的参数
     // Like getopt(), we permute non-option flags to be at the end.
     if (arg[0] != '-' || arg[1] == '\0') {	// must be a program argument: "-" is an argument, not a flag
+      // memmove函数用于将src指向的内存块的内容复制到dest指向的内存块中，n是要复制的字节数，这里用于前移参数后的所有标志
       memmove((*argv) + i, (*argv) + i+1, (*argc - (i+1)) * sizeof((*argv)[i]));
+      // 将当前的参数放到最后
       (*argv)[*argc-1] = arg;      // we go last
       first_nonopt--;              // we've been pushed onto the stack
-      i--;                         // to undo the i++ in the loop
+      // 因为将所有的标志都前移了，所以要将i--，以便下次循环时能够继续处理当前的标志
+      i--;                         // to undo the i++ in the loop·
       continue;
     }
     arg++;                     // skip leading '-'
     if (arg[0] == '-') arg++;  // or leading '--'
 
     // -- alone means what it does for GNU: stop options parsing
+    // 正常的参数格式是这样的：--flag=value
+    // 当出现--时，表示后面的参数都是参数，不再是标志，所以直接将first_nonopt设置为i+1，然后跳出循环
     if (*arg == '\0') {
       first_nonopt = i+1;
       break;
@@ -1073,6 +1140,7 @@ uint32 CommandLineFlagParser::ParseNewCommandLineFlags(int* argc, char*** argv,
                              + " is missing its argument");
         if (flag->help() && flag->help()[0] > '\001') {
           // Be useful in case we have a non-stripped description.
+          // 如果flag有help信息，将help信息添加到error_flags_中
           error_flags_[key] += string("; flag description: ") + flag->help();
         }
         error_flags_[key] += "\n";
@@ -1092,6 +1160,7 @@ uint32 CommandLineFlagParser::ParseNewCommandLineFlags(int* argc, char*** argv,
         // want to solve talk about true and false as values.
         if (value[0] == '-'
             && flag->Type() == FlagValue::FV_STRING
+            // strstr函数用于在一个字符串中查找一个子串，如果找到则返回子串的首地址，否则返回NULL
             && (strstr(flag->help(), "true")
                 || strstr(flag->help(), "false"))) {
           LOG(WARNING) << "Did you really mean to set flag '"
@@ -1118,6 +1187,7 @@ uint32 CommandLineFlagParser::ParseNewCommandLineFlags(int* argc, char*** argv,
   return first_nonopt;
 }
 
+// 分别对参数中的每一个文件进行处理，如file1.txt,file2.txt,file3.txt
 string CommandLineFlagParser::ProcessFlagfileLocked(const string& flagval,
                                                     FlagSettingMode set_mode) {
   if (flagval.empty())
@@ -1133,6 +1203,7 @@ string CommandLineFlagParser::ProcessFlagfileLocked(const string& flagval,
   return msg;
 }
 
+// 分别对参数中的每一个环境变量进行处理，如FLAGS_flag1,FLAGS_flag2,FLAGS_flag3
 string CommandLineFlagParser::ProcessFromenvLocked(const string& flagval,
                                                    FlagSettingMode set_mode,
                                                    bool errors_are_fatal) {
@@ -1157,6 +1228,7 @@ string CommandLineFlagParser::ProcessFromenvLocked(const string& flagval,
 
     const string envname = string("FLAGS_") + string(flagname);
     string envval;
+    // 检查当前的这个环境变量是否存在，存在则将其值赋给envval
     if (!SafeGetEnv(envname.c_str(), envval)) {
       if (errors_are_fatal) {
         error_flags_[flagname] = (string(kError) + envname +
@@ -1178,6 +1250,7 @@ string CommandLineFlagParser::ProcessFromenvLocked(const string& flagval,
   return msg;
 }
 
+// 将value的值设置到flag_value中，修改CommandLineFlag对象的modified_标志位，并根据flag的name处理flagfile,fromenv,tryfromenv
 string CommandLineFlagParser::ProcessSingleOptionLocked(
     CommandLineFlag* flag, const char* value, FlagSettingMode set_mode) {
   string msg;
@@ -1189,11 +1262,14 @@ string CommandLineFlagParser::ProcessSingleOptionLocked(
   // The recursive flags, --flagfile and --fromenv and --tryfromenv,
   // must be dealt with as soon as they're seen.  They will emit
   // messages of their own.
+  // 格式：--flagfile=config.txt,config2.txt
   if (strcmp(flag->name(), "flagfile") == 0) {
     msg += ProcessFlagfileLocked(FLAGS_flagfile, set_mode);
 
   } else if (strcmp(flag->name(), "fromenv") == 0) {
     // last arg indicates envval-not-found is fatal (unlike in --tryfromenv)
+    // FLAGS_fromenv用于设置哪些flag从环境变量中获取值，例如FLAGS_fromenv=flag1,flag2,flag3
+    // 这是就要从环境变量中获取flag1,flag2,flag3的值，所以要根据name在注册表中找到当前的flag
     msg += ProcessFromenvLocked(FLAGS_fromenv, set_mode, true);
 
   } else if (strcmp(flag->name(), "tryfromenv") == 0) {
@@ -1203,6 +1279,7 @@ string CommandLineFlagParser::ProcessSingleOptionLocked(
   return msg;
 }
 
+// 验证在FlagMap中的所有未被修改过的标志，说明这些标志缺少必要的值
 void CommandLineFlagParser::ValidateFlags(bool all) {
   FlagRegistryLock frl(registry_);
   for (FlagRegistry::FlagConstIterator i = registry_->flags_.begin();
@@ -1211,10 +1288,12 @@ void CommandLineFlagParser::ValidateFlags(bool all) {
       // only set a message if one isn't already there.  (If there's
       // an error message, our job is done, even if it's not exactly
       // the same error.)
+      // 如果error_flags_中没有这个flag的错误信息，则将错误信息添加到error_flags_中
       if (error_flags_[i->second->name()].empty()) {
         error_flags_[i->second->name()] =
             string(kError) + "--" + i->second->name() +
             " must be set on the commandline";
+        // 如果当前的标志没有被修改过，则将错误信息添加到error_flags_中
         if (!i->second->Modified()) {
           error_flags_[i->second->name()] += " (default value fails validation)";
         }
@@ -1228,15 +1307,19 @@ void CommandLineFlagParser::ValidateUnmodifiedFlags() {
   ValidateFlags(false);
 }
 
+// 将可以忽略的错误信息从error_flags_中删除，然后将剩下的错误信息打印出来
 bool CommandLineFlagParser::ReportErrors() {
   // error_flags_ indicates errors we saw while parsing.
   // But we ignore undefined-names if ok'ed by --undef_ok
+  // FLAGS_undefok代表一系列可以被忽略的未定义的flag
   if (!FLAGS_undefok.empty()) {
     vector<string> flaglist;
     ParseFlagList(FLAGS_undefok.c_str(), &flaglist);
     for (size_t i = 0; i < flaglist.size(); ++i) {
       // We also deal with --no<flag>, in case the flagname was boolean
+      // 对于bool类型的flag，可以在flag前加上no，表示将其设置为false，例如：--noflag表示将flag设置为false
       const string no_version = string("no") + flaglist[i];
+      // 检查flaglist中的每一个flag是否在undefined_names_中，如果在，则将其从error_flags_中删除
       if (undefined_names_.find(flaglist[i]) != undefined_names_.end()) {
         error_flags_[flaglist[i]] = "";    // clear the error message
       } else if (undefined_names_.find(no_version) != undefined_names_.end()) {
@@ -1267,6 +1350,7 @@ bool CommandLineFlagParser::ReportErrors() {
   return found_error;
 }
 
+// 处理一个文件中的所有命令行
 string CommandLineFlagParser::ProcessOptionsFromStringLocked(
     const string& contentdata, FlagSettingMode set_mode) {
   string retval;
@@ -1277,15 +1361,18 @@ string CommandLineFlagParser::ProcessOptionsFromStringLocked(
   const char* line_end = flagfile_contents;
   // We read this file a line at a time.
   for (; line_end; flagfile_contents = line_end + 1) {
+    // 跳过空白字符
     while (*flagfile_contents && isspace(*flagfile_contents))
       ++flagfile_contents;
     // Windows uses "\r\n"
+    // '\r'是回车符，'\n'是换行符
     line_end = strchr(flagfile_contents, '\r');
     if (line_end == NULL)
         line_end = strchr(flagfile_contents, '\n');
 
     size_t len = line_end ? line_end - flagfile_contents
                           : strlen(flagfile_contents);
+    // line是一个flagfile中的一行
     string line(flagfile_contents, len);
 
     // Each line can be one of four things:
@@ -1293,6 +1380,13 @@ string CommandLineFlagParser::ProcessOptionsFromStringLocked(
     // 2) An empty line -- we skip it
     // 3) A list of filenames -- starts a new filenames+flags section
     // 4) A --flag=value line -- apply if previous filenames match
+
+    // 示例：file1.cpp file2.cpp file3.cpp
+    //        --optimize=2
+    //        --debug
+    //      file4.cpp
+    //        --optimize=3
+    //        --warnings=all
     if (line.empty() || line[0] == '#') {
       // comment or empty line; just ignore
 
@@ -1316,6 +1410,8 @@ string CommandLineFlagParser::ProcessOptionsFromStringLocked(
       } else if (value == NULL) {
         // "WARNING: flagname '" + key + "' missing a value\n"
       } else {
+        // 正常处理此flag
+        // 如果正在解析的文件中仍然出现了flagfile、fromenv或tryfromenv，则递归处理
         retval += ProcessSingleOptionLocked(flag, value, set_mode);
       }
 
@@ -1327,14 +1423,17 @@ string CommandLineFlagParser::ProcessOptionsFromStringLocked(
 
       // Split the line up at spaces into glob-patterns
       const char* space = line.c_str();   // just has to be non-NULL
+      // 对一行中的每一个单词进行处理
       for (const char* word = line.c_str(); *space; word = space+1) {
         if (flags_are_relevant)     // we can stop as soon as we match
           break;
+        // space指针用于定位下一个空格，以便将当前行分割成多个单词
         space = strchr(word, ' ');
         if (space == NULL)
           space = word + strlen(word);
         const string glob(word, space - word);
         // We try matching both against the full argv0 and basename(argv0)
+        // 如果当前的文件名与glob匹配，则flags_are_relevant设置为true
         if (glob == ProgramInvocationName()       // small optimization
             || glob == ProgramInvocationShortName()
 #if defined(HAVE_FNMATCH_H)
@@ -1362,6 +1461,7 @@ string CommandLineFlagParser::ProcessOptionsFromStringLocked(
 //    declarations for these classes possible).
 // --------------------------------------------------------------------
 
+// 将varname对应的环境变量的值解析为T类型的值，并存入value_buffer_中
 template<typename T>
 T GetFromEnv(const char *varname, T dflt) {
   std::string valstr;
@@ -1375,6 +1475,7 @@ T GetFromEnv(const char *varname, T dflt) {
   } else return dflt;
 }
 
+// 为flag_ptr指向的flag添加一个验证函数
 bool AddFlagValidator(const void* flag_ptr, ValidateFnProto validate_fn_proto) {
   // We want a lock around this routine, in case two threads try to
   // add a validator (hopefully the same one!) at once.  We could use
@@ -1417,6 +1518,7 @@ bool AddFlagValidator(const void* flag_ptr, ValidateFnProto validate_fn_proto) {
 //    values in a global destructor.
 // --------------------------------------------------------------------
 
+// 匿名命名空间，仅在本文件中有效，意味着这个函数只能在本文件中调用，可能是一些辅助函数
 namespace {
 void RegisterCommandLineFlag(const char* name,
                              const char* help,
@@ -1432,6 +1534,9 @@ void RegisterCommandLineFlag(const char* name,
 }
 }
 
+// 从这里开始到文件最终的函数已经不在匿名命名空间中，所以应该是向外部提供的接口，前边都是具体的实现细节
+
+// 将一个flag注册到全局的FlagRegistry中
 template <typename FlagType>
 FlagRegisterer::FlagRegisterer(const char* name,
                                const char* help,
@@ -1450,6 +1555,7 @@ FlagRegisterer::FlagRegisterer(const char* name,
       type* current_storage, type* defvalue_storage)
 
 // Do this for all supported flag types.
+// 为不同的数据类型实例化，意味着对每一种不同的类，编译器都会生成一个对应的FlagRegisterer类
 INSTANTIATE_FLAG_REGISTERER_CTOR(bool);
 INSTANTIATE_FLAG_REGISTERER_CTOR(int32);
 INSTANTIATE_FLAG_REGISTERER_CTOR(uint32);
@@ -1478,8 +1584,10 @@ struct FilenameFlagnameCmp {
   }
 };
 
+// 将GlobalRegistry中所有的flag信息存入OUTPUT中，然后按照文件名和flag名进行排序
 void GetAllFlags(vector<CommandLineFlagInfo>* OUTPUT) {
   FlagRegistry* const registry = FlagRegistry::GlobalRegistry();
+  // 使用互斥锁保证同一时间只有一个线程访问registry
   registry->Lock();
   for (FlagRegistry::FlagConstIterator i = registry->flags_.begin();
        i != registry->flags_.end(); ++i) {
@@ -1515,11 +1623,14 @@ static vector<string> argvs;
 static uint32 argv_sum = 0;
 
 void SetArgv(int argc, const char** argv) {
+  // 确保SetArgv只被调用一次
+  // 静态变量的特点是它们在程序启动时初始化，并且直到程序终止才销毁，所以这里的
+  // static bool called_set_argv = false; 这行代码只会在第一次执行时被执行，之后不会再执行。
   static bool called_set_argv = false;
   if (called_set_argv) return;
   called_set_argv = true;
 
-  assert(argc > 0); // every program has at least a name
+  assert(argc > 0); // every program h.as at least a name
   argv0 = argv[0];
 
   cmdline.clear();
@@ -1532,6 +1643,7 @@ void SetArgv(int argc, const char** argv) {
   // Compute a simple sum of all the chars in argv
   argv_sum = 0;
   for (string::const_iterator c = cmdline.begin(); c != cmdline.end(); ++c) {
+    // argv_sum是所有参数的字符的和，字符会被转换为ASCII码
     argv_sum += *c;
   }
 }
@@ -1540,10 +1652,13 @@ const vector<string>& GetArgvs() { return argvs; }
 const char* GetArgv()            { return cmdline.c_str(); }
 const char* GetArgv0()           { return argv0.c_str(); }
 uint32 GetArgvSum()              { return argv_sum; }
+// 返回程序的名字
 const char* ProgramInvocationName() {             // like the GNU libc fn
   return GetArgv0();
 }
+// 返回程序调用的短名称，即不包含路径的文件名
 const char* ProgramInvocationShortName() {        // like the GNU libc fn
+  // rfind函数用于在一个字符串中查找一个子串，返回子串的最后一个字符的位置，如果没有找到则返回string::npos
   size_t pos = argv0.rfind('/');
 #ifdef OS_WINDOWS
   if (pos == string::npos) pos = argv0.rfind('\\');
@@ -1597,6 +1712,7 @@ const char* VersionString() {
 // --------------------------------------------------------------------
 
 
+// 从全局的FlagRegistry中获取name对应的flag的值
 bool GetCommandLineOption(const char* name, string* value) {
   if (NULL == name)
     return false;
@@ -1613,6 +1729,7 @@ bool GetCommandLineOption(const char* name, string* value) {
   }
 }
 
+// 从全局的FlagRegistry中获取name对应的flag的信息，将其存入CommandLineFlagInfo对象中
 bool GetCommandLineFlagInfo(const char* name, CommandLineFlagInfo* OUTPUT) {
   if (NULL == name) return false;
   FlagRegistry* const registry = FlagRegistry::GlobalRegistry();
@@ -1682,6 +1799,7 @@ class FlagSaverImpl {
   // Saves the flag states from the flag registry into this object.
   // It's an error to call this more than once.
   // Must be called when the registry mutex is not held.
+  // 将main_registry_中的所有flag的信息备份到backup_registry_中
   void SaveFromRegistry() {
     FlagRegistryLock frl(main_registry_);
     assert(backup_registry_.empty());   // call only once!
@@ -1690,6 +1808,7 @@ class FlagSaverImpl {
          ++it) {
       const CommandLineFlag* main = it->second;
       // Sets up all the const variables in backup correctly
+      // 备份每一个flag的信息
       CommandLineFlag* backup = new CommandLineFlag(
           main->name(), main->help(), main->filename(),
           main->current_->New(), main->defvalue_->New());
@@ -1703,6 +1822,7 @@ class FlagSaverImpl {
   // assume no flags were added or deleted from the registry since
   // the SaveFromRegistry; if they were, that's trouble!  Must be
   // called when the registry mutex is not held.
+  // 将backup_registry_中的所有flag的信息恢复到main_registry_中
   void RestoreToRegistry() {
     FlagRegistryLock frl(main_registry_);
     vector<CommandLineFlag*>::const_iterator it;
@@ -1716,12 +1836,15 @@ class FlagSaverImpl {
 
  private:
   FlagRegistry* const main_registry_;
+  // 因为不能直接修改main_registry_中的CommandLineFlag对象，所以需要一个备份
   vector<CommandLineFlag*> backup_registry_;
 
   FlagSaverImpl(const FlagSaverImpl&);  // no copying!
   void operator=(const FlagSaverImpl&);
 };
 
+// 在构造时将所有的flag信息备份到backup_registry_中，在析构时将backup_registry_中的信息恢复到main_registry_中
+// 防止在main_registry_中的flag信息被修改后，无法恢复
 FlagSaver::FlagSaver()
     : impl_(new FlagSaverImpl(FlagRegistry::GlobalRegistry())) {
   impl_->SaveFromRegistry();
@@ -1748,6 +1871,7 @@ FlagSaver::~FlagSaver() {
 //    the result of having called the flagfile, of course).
 // --------------------------------------------------------------------
 
+// 将一个vector中的所有CommandLineFlagInfo对象转换为一个字符串
 static string TheseCommandlineFlagsIntoString(
     const vector<CommandLineFlagInfo>& flags) {
   vector<CommandLineFlagInfo>::const_iterator i;
@@ -1755,6 +1879,7 @@ static string TheseCommandlineFlagsIntoString(
   size_t retval_space = 0;
   for (i = flags.begin(); i != flags.end(); ++i) {
     // An (over)estimate of how much space it will take to print this flag
+    // 加5是因为flag的名字前面有两个'--'，后面有一个'='，再加上一个'\n'，这是最大的情况
     retval_space += i->name.length() + i->current_value.length() + 5;
   }
 
@@ -1776,6 +1901,7 @@ string CommandlineFlagsIntoString() {
   return TheseCommandlineFlagsIntoString(sorted_flags);
 }
 
+// 将flagfilecontents中的flag信息解析到main_registry_中,如果解析失败，则将main_registry_中的flag信息恢复到之前的状态
 bool ReadFlagsFromString(const string& flagfilecontents,
                          const char* /*prog_name*/,  // TODO(csilvers): nix this
                          bool errors_are_fatal) {
@@ -1785,6 +1911,7 @@ bool ReadFlagsFromString(const string& flagfilecontents,
 
   CommandLineFlagParser parser(registry);
   registry->Lock();
+  // 将文件中的string中的flag信息解析到main_registry_中
   parser.ProcessOptionsFromStringLocked(flagfilecontents, SET_FLAGS_VALUE);
   registry->Unlock();
   // Should we handle --help and such when reading flags from a string?  Sure.
@@ -1800,8 +1927,10 @@ bool ReadFlagsFromString(const string& flagfilecontents,
 }
 
 // TODO(csilvers): nix prog_name in favor of ProgramInvocationShortName()
+// 将全部的flag信息转为string类型并写入到filename中
 bool AppendFlagsIntoFile(const string& filename, const char *prog_name) {
   FILE *fp;
+  // SafeFOpen函数用于打开一个文件，如果打开成功，则返回0
   if (SafeFOpen(&fp, filename.c_str(), "a") != 0) {
     return false;
   }
@@ -1825,6 +1954,7 @@ bool AppendFlagsIntoFile(const string& filename, const char *prog_name) {
   return true;
 }
 
+// 从filename中读取flag信息，并解析到main_registry_中
 bool ReadFromFlagsFile(const string& filename, const char* prog_name,
                        bool errors_are_fatal) {
   return ReadFlagsFromString(ReadFileIntoString(filename.c_str()),
@@ -1931,8 +2061,11 @@ bool RegisterFlagValidator(const string* flag,
 //    the parsing of the flags and the printing of any help output.
 // --------------------------------------------------------------------
 
+// 首先处理FLAGS_flagfile、FLAGS_fromenv、FLAGS_tryfromenv，然后解析命令行中的flag
+// 并且进行命令的自动补全，最后检查所有的flag是否合法
 static uint32 ParseCommandLineFlagsInternal(int* argc, char*** argv,
                                             bool remove_flags, bool do_report) {
+  // const_cast用于移除或添加const属性
   SetArgv(*argc, const_cast<const char**>(*argv));    // save it for later
 
   FlagRegistry* const registry = FlagRegistry::GlobalRegistry();
@@ -1944,6 +2077,7 @@ static uint32 ParseCommandLineFlagsInternal(int* argc, char*** argv,
   // manually before calling ParseCommandLineFlags.  We want to evaluate
   // those too, as if they were the first flags on the commandline.
   registry->Lock();
+  // FLAGS_flagfile的值是一个或多个文件名
   parser.ProcessFlagfileLocked(FLAGS_flagfile, SET_FLAGS_VALUE);
   // Last arg here indicates whether flag-not-found is a fatal error or not
   parser.ProcessFromenvLocked(FLAGS_fromenv, SET_FLAGS_VALUE, true);
@@ -1990,21 +2124,25 @@ void AllowCommandLineReparsing() {
   allow_command_line_reparsing = true;
 }
 
+// 重新解析命令行中的flag
 void ReparseCommandLineNonHelpFlags() {
   // We make a copy of argc and argv to pass in
   const vector<string>& argvs = GetArgvs();
   int tmp_argc = static_cast<int>(argvs.size());
   char** tmp_argv = new char* [tmp_argc + 1];
   for (int i = 0; i < tmp_argc; ++i)
+    // strdup函数用于复制一个字符串，返回一个指向副本字符串的指针
     tmp_argv[i] = strdup(argvs[i].c_str());   // TODO(csilvers): don't dup
 
   ParseCommandLineNonHelpFlags(&tmp_argc, &tmp_argv, false);
 
+  // free只是释放内存，与delete不同，delete会调用析构函数
   for (int i = 0; i < tmp_argc; ++i)
     free(tmp_argv[i]);
   delete[] tmp_argv;
 }
 
+// 删除registry中的所有flag
 void ShutDownCommandLineFlags() {
   FlagRegistry::DeleteGlobalRegistry();
 }
